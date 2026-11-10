@@ -1,0 +1,12 @@
+# 构建中间产物（embed 头，由 build/gen_embed_all.py 现场生成，单文件 16MB+，不入版本控制）
+build/*.h
+# 开发探针（一次性诊断，非交付物）
+lance_probe.js
+lance_url_probe.js
+l20_err_probe.js
+trace_hook.js
+*_test.html
+*_diag.html
+sql_diag.html
+# 坏版本备份（本地留档，不入版本控制）
+*.bak_broken

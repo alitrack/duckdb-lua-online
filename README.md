@@ -17,10 +17,10 @@
 | Host | native DuckDB | DuckDB-Wasm (browser, blocking mode) |
 | Lua | **LuaJIT** (JIT, ~1MB) | **PUC Lua 5.4** (interpreter, source embedded in WASM) |
 | Why the swap | JIT can't work | LuaJIT **cannot** run in WASM (JIT needs executable memory; author Mike Pall has ruled it out) — so the interpreter route is the only viable one |
-| Libraries | same 29-portable lib set | same 29 libs, compiled into 3 WASM modules |
+| Libraries | same 30-portable lib set | same 30 libs, compiled into 3 WASM modules |
 | Callback bridge | `_duckdb_call/_duckdb_query` native C | same contract, bridged via `EM_JS` to a **second DuckDB connection** (avoids UDF reentrancy deadlock) |
 
-The 29 libs and their callback contract are identical to duckdb-luajit — if this validates, the same libs ship into duckdb-wasm without rewrites.
+The 30 libs and their callback contract are identical to duckdb-luajit — if this validates, the same libs ship into duckdb-wasm without rewrites.
 
 ## Three term corrections (honest labeling)
 
@@ -28,7 +28,7 @@ The 29 libs and their callback contract are identical to duckdb-luajit — if th
 |---|---|---|
 | **DuckDB 2.0** | DuckDB engine **v1.5.4** (runtime `getVersion()`) | The published `@duckdb/duckdb-wasm` npm package (1.33.1-dev57.0) is built on engine 1.5.4; the official 2.0 line is not in this published build. The page prints the real runtime version — no fake badge. |
 | **LuaJIT** | **PUC Lua 5.4** | LuaJIT → WASM is a proven dead end (JIT in a sandbox). This is the post-verdict alternative: PUC interpreter compiled to WASM. (5.4 chosen over 5.5 — see [Q&A](#why-lua-54-not-55).) |
-| **29 libs all green** | **29/30 OK** | All 21 pure-compute + jieba/pinyin + 6 callback libs (export/rbac/scd2/etl/incremental/demo_e2e) verified end-to-end against real DuckDB. The 5 previously-"failing" callback libs were a **misdiagnosis** (see pitfall 7): not deep recursion — a missing `-sDISABLE_EXCEPTION_CATCHING=0` made Lua errors escape as a bare number that the scan mislabeled `wasm-trap`. Fixed build: all green. `to_lance` reports its real blocker honestly: the Lance extension has no duckdb-wasm build (lance-duckdb extension was removed from DuckDB core; Lance-on-WASM blocked on Tokio/DataFusion per lance-format/lance#3587). |
+| **30 libs all green** | **29/30 OK** | All 21 pure-compute + jieba/pinyin + 6 callback libs (export/rbac/scd2/etl/incremental/demo_e2e) verified end-to-end against real DuckDB. The 5 previously-"failing" callback libs were a **misdiagnosis** (see pitfall 7): not deep recursion — a missing `-sDISABLE_EXCEPTION_CATCHING=0` made Lua errors escape as a bare number that the scan mislabeled `wasm-trap`. Fixed build: all green. `to_lance` reports its real blocker honestly (verified 2026-11-10): the official repo has no `lance` wasm binary — the engine's fetch for `extensions.duckdb.org/v1.5.4/wasm_eh/lance.duckdb_extension.wasm` returns **404** (sibling `icu`/`json` in the same path return 200, so the path is correct; lance metadata exists but its binary was never published). A second, independent blocker: the blocking build's extension download uses a *synchronous* XHR with `responseType='arraybuffer'`, which Chromium forbids in a document main thread (it works only in a worker). Self-building is infeasible here: Lance-on-WASM is blocked on Tokio (needs real OS threads/epoll, absent in single-threaded wasm) + DataFusion (lance-format/lance#3587). So the lib's honest `Catalog Error: ...lance does not exist` is the correct terminal behavior, not a bug. |
 
 ## Architecture
 
@@ -56,7 +56,7 @@ python3 -m http.server 8199
 # open http://localhost:8199/index.html
 ```
 
-On load it auto-seeds demo source tables (Connection B) → runs the 29-lib health scan → renders results.
+On load it auto-seeds demo source tables (Connection B) → runs the 30-lib health scan → renders results.
 
 ## Online hosting
 
@@ -79,9 +79,11 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
 # 三模块统一带 -sDISABLE_EXCEPTION_CATCHING=0（见坑 7：emcc 3.1.6 默认禁用 catch，
 #   缺此 flag 时任何库抛出的 Lua 错误都穿透成裸 JS 数字、被扫描误标 wasm-trap）
 # 栈/内存：L7=128MB/512MB   L20=128MB/512MB   LU=8MB/32MB
-# Lua sources are embedded as C string headers (gen_all_embed.py → cur_embed.h)
+# Lua sources are embedded as C string headers (build/gen_embed_all.py → *_embed.h → cur_embed.h)
 # DuckDB bundle: esbuild bundles @duckdb/duckdb-wasm(browser-blocking) + apache-arrow into one IIFE
 ```
+
+**One-command build (committed & byte-verified):** `build/build_all.sh [all|l20|l7|lujp]` wires the embed generation + the three per-module `em++` invocations above. Verified 2026-11-10: it reproduces the deployed `lua7.js` (646,143 B) and `lua20.js` (824,766 B) **byte-for-byte**. Override toolchain paths via `EMCC` / `LUA_SRC` / `LIBS` env vars (defaults point at the WSL user-space install). The per-module differences that matter: `udf_drv.c` vs `udf_drv_fix.c` (L7 adds the `os` lib) and the stack/memory per module — both are parameterized in the script, not guessed.
 
 ## Key pitfalls hit (empirical, not guessed)
 
@@ -96,21 +98,22 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
 ## Q&A
 
 ### Why PUC Lua, not LuaJIT?
-LuaJIT's whole value is the JIT, which needs executable memory and on-the-fly code generation — impossible in a WASM sandbox (and ruled out by the author). The PUC 5.4 interpreter compiles to WASM cleanly; this repo proves the 29-lib workload runs.
+LuaJIT's whole value is the JIT, which needs executable memory and on-the-fly code generation — impossible in a WASM sandbox (and ruled out by the author). The PUC 5.4 interpreter compiles to WASM cleanly; this repo proves the 30-lib workload runs.
 
 ### Why Lua 5.4, not 5.5?
-- The 29 libraries are **written and regression-tested against the 5.4 API surface** (duckdb-luajit's native extension ships 5.4-compatible libs; LuaJIT is 5.1+2JIT). 5.5 changes are mostly additive (global-var declarations, named vararg, incremental GC) but also drop/deprecate some 5.1-era behavior the libs rely on (e.g. the `unpack` global — 5.4 still provides it, 5.5 removed it entirely).
-- 5.4 is the **last version where `unpack` exists** as a global and the C API is identical to what every existing port targets; switching to 5.5 means re-validating all 29 libs plus the C embed layer (a separate validation pass), while buying nothing the demo needs.
+- The 30 libraries are **written and regression-tested against the 5.4 API surface** (duckdb-luajit's native extension ships 5.4-compatible libs; LuaJIT is 5.1+2JIT). 5.5 changes are mostly additive (global-var declarations, named vararg, incremental GC) but also drop/deprecate some 5.1-era behavior the libs rely on (e.g. the `unpack` global — 5.4 still provides it, 5.5 removed it entirely).
+- 5.4 is the **last version where `unpack` exists** as a global and the C API is identical to what every existing port targets; switching to 5.5 means re-validating all 30 libs plus the C embed layer (a separate validation pass), while buying nothing the demo needs.
 - The wasm build here is a **feasibility/bridge PoC**, not a runtime upgrade — 5.4 is the lowest-risk choice that keeps the lib set green. A 5.5 port is a clean follow-up once the libs are re-baselined.
 
 ## Directory
 
 ```
 index.html            dark high-contrast single page (links + copyright footer)
-app.js                DuckDB load + UDF registration + 3-module orchestration + 29-lib scan
+app.js                DuckDB load + UDF registration + 3-module orchestration + 30-lib scan
 ddw.bundle.js         DuckDB-WASM + apache-arrow combined IIFE (esbuild, 1.3MB)
 lua20.js / lua7.js / luajp.js   3 Lua-WASM modules (SINGLE_FILE)
 duckdb-mvp.wasm / duckdb-eh.wasm   DuckDB engine wasm (local, zero CDN)
+build/                reproducible build (build_all.sh + gen_embed_all.py + udf_drv*.c), byte-verified
 ```
 
 ## License

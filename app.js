@@ -13,7 +13,7 @@ const ARROW = window.Arrow;
 if (!DDB) { throw new Error("DuckDB bundle 未加载 (ddw.bundle.js)"); }
 if (!ARROW) { throw new Error("apache-arrow 未加载 (ddw.bundle.js)"); }
 
-/* 29 库 → 所在模块映射 */
+/* 30 库 → 所在模块映射 */
 const L7NAMES  = ["etl","incremental","scd2","to_lance","export","rbac","demo_e2e"];
 const LUNAMES  = ["jieba","pinyin"];
 function moduleOf(name){
@@ -215,8 +215,8 @@ function runNLP(){
   $("run-nlp").disabled = false;
 }
 
-/* ============ ④ 29 库健康扫描 ============ */
-const ALL29 = ["json","jsonpatch","jsonpath","markdown","tomlini","xml","yaml",
+/* ============ ④ 30 库健康扫描 ============ */
+const ALL30 = ["json","jsonpatch","jsonpath","markdown","tomlini","xml","yaml",
   "bignum","cidr","basexx","fuzzy","html_escape","ltree","pgrouting","qr",
   "soundex","entity","rsi_scorer","psi","cncheck","trgm","etl","incremental",
   "scd2","to_lance","export","rbac","demo_e2e","jieba","pinyin"];
@@ -225,7 +225,7 @@ function runScan(){
   $("run-scan").disabled = true;
   const lines = []; let ok=0, fail=0;
   const t0 = performance.now();
-  for (const lib of ALL29){
+  for (const lib of ALL30){
     const M = S.lua[moduleOf(lib)];
     let r, ms; const t1 = performance.now();
     try { r = M ? M._run(lib, "") : "MODULE_NOT_LOADED"; }
@@ -236,7 +236,7 @@ function runScan(){
     lines.push(`${lib.padEnd(14)} [${bad?"FAIL":"OK  ".slice(0,4)}] ${ms}ms  ${String(r).slice(0,92).replace(/\n/g," ")}`);
   }
   pre("scan-out", lines.join("\n"));
-  setBadge("b-libs", `${ok}/${ALL29.length}`);
+  setBadge("b-libs", `${ok}/${ALL30.length}`);
   status("scan-status", `<span class='${fail?"warn":"ok"}'>完成</span> · OK ${ok} / FAIL ${fail} · 总 ${(performance.now()-t0).toFixed(0)}ms`);
   $("run-scan").disabled = false;
 }
@@ -261,7 +261,7 @@ function showInfo(){
     "模式: blocking（主线程, 无 worker）双连接 —— 主(UDF) + 第二(回调)",
     "Lua: PUC Lua 5.4（LuaJIT 进 WASM 死路 → 判词后替代路线）",
     "UDF: lua_lib(name, input) → DOUBLE 索引（本构建 VARCHAR UDF 返回有上游 NUL 缺陷, 字符串经同线程 JS 桥取回）",
-    "Lua 源码: 已嵌入 WASM (SINGLE_FILE), 29 库分 3 模块 (L20=21计算 / L7=7回调 / LU=2中文)",
+    "Lua 源码: 已嵌入 WASM (SINGLE_FILE), 30 库分 3 模块 (L20=21计算 / L7=7回调 / LU=2中文)",
     "词典: jieba+pinyin 内嵌 16.5MB",
     "DuckDB bundle: 本地 esbuild IIFE (1.3MB); wasm 主模块本地 (duckdb-mvp/eh.wasm, 零 CDN)",
     "注: 5 个回调库曾误报 wasm-trap——真因是构建缺 -sDISABLE_EXCEPTION_CATCHING=0, Lua 错误穿透成裸数字(app.js 误标 trap); 已修复。to_lance 需 Lance 扩展(浏览器 bundle 未带), 如实报缺依赖",
@@ -281,7 +281,7 @@ async function main(){
     setBadge("b-lua", "PUC 5.4 ×3");
     showInfo();
     seedDemoTables();      // 给 export/scd2 备好真实源表（第二连接, 双连接契约）
-    runScan();             // 自动跑 29 库健康扫描（演示一眼见结果）
+    runScan();             // 自动跑 30 库健康扫描（演示一眼见结果）
     runCalc();
     runNLP();
   } catch(e){

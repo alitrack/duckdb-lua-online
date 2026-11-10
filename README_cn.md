@@ -2,7 +2,7 @@
 
 > English version: [README.md](README.md)
 
-**在浏览器里同时跑 DuckDB 和真实 Lua 虚拟机（29 个 Lua 库）。** DuckDB 执行 SQL，SQL 行内调用真正的标量 UDF `lua_lib(库名, 输入)`，Lua 虚拟机用 29 个内嵌库真实计算；其中 7 个回调库还会**反向**驱动 DuckDB（第二连接）建表、查询、导出 CSV —— 一条真实的双向闭环，全在浏览器端，**零 CDN、零服务端**。
+**在浏览器里同时跑 DuckDB 和真实 Lua 虚拟机（30 个 Lua 库）。** DuckDB 执行 SQL，SQL 行内调用真正的标量 UDF `lua_lib(库名, 输入)`，Lua 虚拟机用 30 个内嵌库真实计算；其中 7 个回调库还会**反向**驱动 DuckDB（第二连接）建表、查询、导出 CSV —— 一条真实的双向闭环，全在浏览器端，**零 CDN、零服务端**。
 
 | 在线演示 | 源码与构建 | 关联仓库 |
 |---|---|---|
@@ -17,10 +17,10 @@
 | 宿主 | 原生 DuckDB | DuckDB-Wasm（浏览器，blocking 模式） |
 | Lua | **LuaJIT**（JIT，约 1MB） | **PUC Lua 5.4**（解释器，源码嵌入 WASM） |
 | 为何换 | JIT 无法在沙箱工作 | LuaJIT **进不了** WASM（JIT 需要可执行内存；作者 Mike Pall 已裁定不可行）——解释器路线是唯一可行解 |
-| 库 | 同一套 29 个可移植库 | 同样 29 个库，编进 3 个 WASM 模块 |
+| 库 | 同一套 30 个可移植库 | 同样 30 个库，编进 3 个 WASM 模块 |
 | 回调桥 | `_duckdb_call/_duckdb_query` 原生 C | 同一契约，经 `EM_JS` 桥到**第二条 DuckDB 连接**（避免 UDF 重入死锁） |
 
-29 个库及其回调契约与 duckdb-luajit 完全一致——若本演示验证通过，这 29 个库可**不改代码**直接搬进 duckdb-wasm。
+30 个库及其回调契约与 duckdb-luajit 完全一致——若本演示验证通过，这 30 个库可**不改代码**直接搬进 duckdb-wasm。
 
 ## 三个名词校正（诚实标注）
 
@@ -28,7 +28,7 @@
 |---|---|---|
 | **DuckDB 2.0** | DuckDB 引擎 **v1.5.4**（运行时 `getVersion()`） | 已发布的 `@duckdb/duckdb-wasm` npm 包（1.33.1-dev57.0）底层引擎是 1.5.4，官方 2.0 还没进这个发布构建。页面打印真实运行时版本——不造假徽章。 |
 | **LuaJIT** | **PUC Lua 5.4** | LuaJIT → WASM 已证死路（JIT 在沙箱里无法工作）。这是判词后的替代路线：PUC 解释器编进 WASM。（选 5.4 而非 5.5 —— 见 [Q&A](#为什么用-lua-54-而不是-55)。） |
-| **29 库全绿** | **29/30 OK** | 21 纯计算 + jieba/pinyin + 6 回调库（export/rbac/scd2/etl/incremental/demo_e2e）对真实 DuckDB 端到端验证通过。原先"失败"的 5 个回调库是**误诊**（见坑 7）：不是深递归——构建缺 `-sDISABLE_EXCEPTION_CATCHING=0`，Lua 错误穿透成裸数字被扫描误标 `wasm-trap`。修复后构建全绿。`to_lance` 如实报出真实阻塞：Lance 扩展无 duckdb-wasm 构建（lance-duckdb 已从 DuckDB 核心移除；Lance 上 WASM 被 Tokio/DataFusion 卡住，lance-format/lance#3587）。 |
+| **30 库全绿** | **29/30 OK** | 21 纯计算 + jieba/pinyin + 6 回调库（export/rbac/scd2/etl/incremental/demo_e2e）对真实 DuckDB 端到端验证通过。原先"失败"的 5 个回调库是**误诊**（见坑 7）：不是深递归——构建缺 `-sDISABLE_EXCEPTION_CATCHING=0`，Lua 错误穿透成裸数字被扫描误标 `wasm-trap`。修复后构建全绿。`to_lance` 如实报出真实阻塞：Lance 扩展无 duckdb-wasm 构建（lance-duckdb 已从 DuckDB 核心移除；Lance 上 WASM 被 Tokio/DataFusion 卡住，lance-format/lance#3587）。 |
 
 ## 架构
 
@@ -56,7 +56,7 @@ python3 -m http.server 8199
 # 浏览器开 http://localhost:8199/index.html
 ```
 
-加载完自动：seed 演示源表（连接 B）→ 跑 29 库健康扫描 → 渲染结果。
+加载完自动：seed 演示源表（连接 B）→ 跑 30 库健康扫描 → 渲染结果。
 
 ## 在线托管
 
@@ -96,18 +96,18 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
 ## Q&A
 
 ### 为什么用 PUC Lua，而不是 LuaJIT？
-LuaJIT 的核心价值是 JIT，它需要可执行内存和运行时码生成——WASM 沙箱里不可能（且已被作者裁定不可行）。PUC 5.4 解释器能干净地编进 WASM，本仓证明了 29 库的工作负载能跑。
+LuaJIT 的核心价值是 JIT，它需要可执行内存和运行时码生成——WASM 沙箱里不可能（且已被作者裁定不可行）。PUC 5.4 解释器能干净地编进 WASM，本仓证明了 30 库的工作负载能跑。
 
 ### 为什么用 Lua 5.4，而不是 5.5？
-- 这 29 个库是**按 5.4 API 面写的、并按 5.4 回归验证的**（duckdb-luajit 原生扩展分发的库是 5.4 兼容的；LuaJIT 是 5.1+2JIT）。5.5 的改动大多是增量（全局变量声明、命名 vararg、增量 GC），但同时移除了一些库依赖的 5.1 时代行为（例如 `unpack` 全局——5.4 还有，5.5 彻底删了）。
-- 5.4 是**最后一个 `unpack` 还作为全局存在、且 C API 与所有现有移植目标完全一致**的版本；换 5.5 意味着要重新验证全部 29 个库 + C 嵌入层（一次独立的验证工作），而对本演示买不到任何它需要的能力。
+- 这 30 个库是**按 5.4 API 面写的、并按 5.4 回归验证的**（duckdb-luajit 原生扩展分发的库是 5.4 兼容的；LuaJIT 是 5.1+2JIT）。5.5 的改动大多是增量（全局变量声明、命名 vararg、增量 GC），但同时移除了一些库依赖的 5.1 时代行为（例如 `unpack` 全局——5.4 还有，5.5 彻底删了）。
+- 5.4 是**最后一个 `unpack` 还作为全局存在、且 C API 与所有现有移植目标完全一致**的版本；换 5.5 意味着要重新验证全部 30 个库 + C 嵌入层（一次独立的验证工作），而对本演示买不到任何它需要的能力。
 - 本 wasm 构建是**可行性/桥接 PoC**，不是运行时升级——5.4 是让这套库保持绿色的最低风险选择。5.5 移植是库重新基线化之后的干净后续工作。
 
 ## 目录
 
 ```
 index.html            深色高对比单页（含链接 + 版权 footer）
-app.js                DuckDB 加载 + UDF 注册 + 3 模块编排 + 29 库扫描
+app.js                DuckDB 加载 + UDF 注册 + 3 模块编排 + 30 库扫描
 ddw.bundle.js         DuckDB-WASM + apache-arrow 合并 IIFE（esbuild，1.3MB）
 lua20.js / lua7.js / luajp.js   3 个 Lua-WASM 模块（SINGLE_FILE）
 duckdb-mvp.wasm / duckdb-eh.wasm   DuckDB 引擎 wasm（本地，零 CDN）
@@ -115,4 +115,4 @@ duckdb-mvp.wasm / duckdb-eh.wasm   DuckDB 引擎 wasm（本地，零 CDN）
 
 ## 许可
 
-MIT。依赖：DuckDB（MIT）· DuckDB-Wasm（MIT）· PUC Lua（MIT）· Apache Arrow（Apache-2.0）· 29 个 Lua 库（随 duckdb-luajit 分发，MIT）· jieba/pinyin 词典（各自上游许可）。
+MIT。依赖：DuckDB（MIT）· DuckDB-Wasm（MIT）· PUC Lua（MIT）· Apache Arrow（Apache-2.0）· 30 个 Lua 库（随 duckdb-luajit 分发，MIT）· jieba/pinyin 词典（各自上游许可）。

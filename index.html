@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DuckDB-Wasm + PUC Lua 5.4 · 29 库在线运行</title>
+<title>DuckDB-Wasm + PUC Lua 5.4 · 30 库在线运行</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d3a4a;
@@ -47,9 +47,9 @@
 </style>
 </head>
 <body>
-  <h1>DuckDB in WebAssembly + PUC Lua 5.4 · 29 库在线运行</h1>
+  <h1>DuckDB in WebAssembly + PUC Lua 5.4 · 30 库在线运行</h1>
   <div class="sub">SQL 引擎（DuckDB-Wasm）把 Lua 虚拟机注册成 <b>SQL 标量 UDF</b>
-    <code>lua_lib(库名, 输入)</code>，行内调用 29 个 Lua 库真实计算；
+    <code>lua_lib(库名, 输入)</code>，行内调用 30 个 Lua 库真实计算；
     其中 7 个回调库反向驱动 DuckDB（第二连接）建表/查询。</div>
   <div class="badges" id="badges">
     <span class="badge">引擎: <b id="b-engine">…</b></span>
@@ -131,9 +131,9 @@
       <div class="status" id="nlp-status"></div>
     </div>
 
-    <!-- D: 全量 29 库健康扫描 -->
+    <!-- D: 全量 30 库健康扫描 -->
     <div class="panel full">
-      <h2>④ 29 库健康扫描（加载 + 首调用）</h2>
+      <h2>④ 30 库健康扫描（加载 + 首调用）</h2>
       <button id="run-scan">全量扫描</button>
       <pre id="scan-out" style="margin-top:10px">— 点击全量扫描 —</pre>
       <div class="status" id="scan-status"></div>
@@ -163,7 +163,7 @@
     &nbsp;·&nbsp; <a href="https://alitrack.github.io/duckdb-lua-online/" style="color:var(--acc)">本演示在线地址（GitHub Pages）</a><br>
     姊妹仓：可行性研究 <a href="https://github.com/alitrack/puc-lua-wasm-poc" style="color:var(--acc)">puc-lua-wasm-poc</a>（私有）
     &nbsp;·&nbsp; 主项目 <a href="https://github.com/alitrack/duckdb-luajit" style="color:var(--acc)">duckdb-luajit</a>（LuaJIT 版 DuckDB 扩展, MIT）<br>
-    依赖：DuckDB（MIT）· DuckDB-Wasm（MIT）· PUC Lua 5.4（MIT）· Apache Arrow（Apache-2.0）· 29 个 Lua 库（随 duckdb-luajit 分发, MIT）· jieba/pinyin 词典（各自上游许可）<br>
+    依赖：DuckDB（MIT）· DuckDB-Wasm（MIT）· PUC Lua 5.4（MIT）· Apache Arrow（Apache-2.0）· 30 个 Lua 库（随 duckdb-luajit 分发, MIT）· jieba/pinyin 词典（各自上游许可）<br>
     本页代码 MIT 许可，可自由 Fork 使用。构建：Emscripten 3.1.6 + PUC Lua 5.4.7 全源码嵌入（SINGLE_FILE）。
   </footer>
 
