@@ -1,92 +1,116 @@
-# DuckDB + Lua in WebAssembly · 在线展示
+# DuckDB + PUC Lua in WebAssembly — Online Demo
 
-把 **DuckDB（WASM 引擎）** 和 **PUC Lua 5.4（29 个 Lua 库，编进 WASM）** 在同一个浏览器页面里跑通：
-DuckDB 执行 SQL，SQL 里直接调用 Lua UDF，Lua 库再回调 DuckDB 建表/查询——**双向真实闭环**，全程浏览器内、无服务端、零 CDN。
+> 中文版见 [README_cn.md](README_cn.md) · Chinese version: [README_cn.md](README_cn.md)
 
-> 这是 `puc-lua-wasm-poc`（纯 Lua→WASM 可行性）的姊妹展示：那边证明「Lua 能进 WASM」，这边把 Lua 真正接进 DuckDB-WASM 的 SQL 执行路径。
+**Run DuckDB and a real Lua VM (29 Lua libraries) inside the browser.** DuckDB executes SQL; SQL calls a genuine scalar UDF `lua_lib(name, input)`; the Lua VM computes with 29 embedded libraries; and 7 of those libraries call **back** into DuckDB (second connection) to create tables, run queries, export CSV — a real bidirectional closed loop, all client-side, **zero CDN, zero server**.
 
-## 三个名词校正（诚实标注）
+| Online demo | Source & build | Siblings |
+|---|---|---|
+| https://alitrack.github.io/duckdb-lua-online/ | https://github.com/alitrack/duckdb-lua-online | [duckdb-luajit](https://github.com/alitrack/duckdb-luajit) (main project) · [puc-lua-wasm-poc](https://github.com/alitrack/puc-lua-wasm-poc) (feasibility research, private) |
 
-| 你问的 | 实际交付 | 原因 |
-|--------|----------|------|
-| **duckdb2.0** | DuckDB 引擎 **v1.5.4** | 已发布的 duckdb-wasm npm 包（`@1.33.1-dev57.0`）底层引擎是 1.5.4，官方「2.0.0」未进该发布构建。页面运行时 `getVersion()` 会显示真实版本，不造假。 |
-| **luajit** | **PUC Lua 5.4** | LuaJIT 进 WASM 是**死路**（JIT 无法在 WASM 沙箱内工作，作者 Mike Pall 官方裁定）。本展示用判词后的替代路线——PUC Lua 5.4 解释器直接编进 WASM。 |
-| **29 个库** | **25/29 跑通** | 21 纯计算 + 2 中文 NLP（jieba/pinyin）+ 2 回调库（export/rbac）真实端到端；4 个深递归 pipeline 库（etl/scd2/incremental/to_lance/demo_e2e）超 wasm 单线程栈上限，页面如实标 `wasm-trap`。 |
+## Relationship to duckdb-luajit
 
-## 架构
+[duckdb-luajit](https://github.com/alitrack/duckdb-luajit) (v0.33, MIT) is a **native** DuckDB extension that embeds **LuaJIT** — JIT-compiled UDFs, `_duckdb_call`/`_duckdb_query` SQL-callback bridge, ~1MB. This repo is its **WASM sibling**: it answers *"what if the Lua side has to run in a WebAssembly sandbox (the browser)?"*
+
+| | duckdb-luajit (main) | this repo (WASM sibling) |
+|---|---|---|
+| Host | native DuckDB | DuckDB-Wasm (browser, blocking mode) |
+| Lua | **LuaJIT** (JIT, ~1MB) | **PUC Lua 5.4** (interpreter, source embedded in WASM) |
+| Why the swap | JIT can't work | LuaJIT **cannot** run in WASM (JIT needs executable memory; author Mike Pall has ruled it out) — so the interpreter route is the only viable one |
+| Libraries | same 29-portable lib set | same 29 libs, compiled into 3 WASM modules |
+| Callback bridge | `_duckdb_call/_duckdb_query` native C | same contract, bridged via `EM_JS` to a **second DuckDB connection** (avoids UDF reentrancy deadlock) |
+
+The 29 libs and their callback contract are identical to duckdb-luajit — if this validates, the same libs ship into duckdb-wasm without rewrites.
+
+## Three term corrections (honest labeling)
+
+| You might expect | What actually ships | Why |
+|---|---|---|
+| **DuckDB 2.0** | DuckDB engine **v1.5.4** (runtime `getVersion()`) | The published `@duckdb/duckdb-wasm` npm package (1.33.1-dev57.0) is built on engine 1.5.4; the official 2.0 line is not in this published build. The page prints the real runtime version — no fake badge. |
+| **LuaJIT** | **PUC Lua 5.4** | LuaJIT → WASM is a proven dead end (JIT in a sandbox). This is the post-verdict alternative: PUC interpreter compiled to WASM. (5.4 chosen over 5.5 — see [Q&A](#why-lua-54-not-55).) |
+| **29 libs all green** | **25/29 OK** | 21 pure-compute + jieba/pinyin + 2 callback libs (export/rbac) verified end-to-end against real DuckDB; 5 deep-recursive pipeline libs (etl/scd2/incremental/to_lance/demo_e2e) exceed the single-thread WASM stack limit and are labeled `wasm-trap` in the scan — fixed requires rewriting their recursion as iteration (separate engineering effort). |
+
+## Architecture
 
 ```
-浏览器 (主线程, blocking 模式, 无 worker)
-├── DuckDB-WASM 引擎 (本地 wasm, 零 CDN)
-│     连接 A（主）:  执行 SQL，注册 lua_lib 标量 UDF
-│     连接 B（第二）:  专供 Lua 回调库 _duckdb_call/_duckdb_query（避免 UDF 内重入死锁）
-└── 3 × PUC Lua 5.4 WASM 模块 (SINGLE_FILE, Lua 源码已嵌入)
-      L20: 21 个纯计算库 (json/yaml/xml/bignum/trgm/qr/cncheck/...)
-      L7:  7 个 DuckDB 回调库 (export/rbac/scd2/etl/... , 经连接 B 建表查询)
-      LU:  jieba + pinyin (16.5MB 词典内嵌)
+Browser (main thread, blocking mode, no worker)
+├── DuckDB-WASM engine (local wasm, zero CDN)
+│     Connection A (primary): runs SQL, holds the lua_lib scalar UDF
+│     Connection B (second):  exclusively for Lua callback libs (_duckdb_call/_duckdb_query)
+└── 3 × PUC Lua 5.4 WASM modules (SINGLE_FILE, Lua sources embedded)
+      L20: 21 pure-compute libs (json/yaml/xml/bignum/trgm/qr/cncheck/…)
+      L7:  7 DuckDB-callback libs (export/rbac/scd2/etl/… → Connection B)
+      LU:  jieba + pinyin (16.5MB dictionaries embedded)
 
-数据流: SQL → lua_lib UDF → ccall → Lua VM 跑库 → 结果字符串经同线程 JS 桥取回
-        Lua 回调库 → __dbc/__dbq (EM_JS) → 连接 B runQuery → 真实建表/查询
+Data flow:
+  SQL → lua_lib UDF → ccall → Lua VM runs the lib → result string via same-thread JS bridge
+  Lua callback libs → __dbc/__dbq (EM_JS) → Connection B runQuery → real CREATE TABLE / SELECT
 ```
 
-## 运行
+## Run
 
 ```bash
-# 需要本地 HTTP（Emscripten 单文件 + 同线程访问，file:// 受限）
-cd 本目录
+# local (Emscripten single-file + same-thread access needs http, not file://)
+cd duckdb-lua-online
 python3 -m http.server 8199
-# 浏览器开 http://localhost:8199/index.html
+# open http://localhost:8199/index.html
 ```
 
-加载完自动：seed 演示源表（连接 B）→ 跑 29 库健康扫描 → 渲染结果。
+On load it auto-seeds demo source tables (Connection B) → runs the 29-lib health scan → renders results.
 
-## 在线托管
+## Online hosting
 
-全部产物**自包含、零 CDN**（DuckDB wasm + 3 Lua 模块 + bundle 全在本地），可任意静态托管：
+Everything is **self-contained, zero-CDN** (DuckDB wasm + 3 Lua modules + bundle all local), so any static host works. Currently live on **GitHub Pages** (legacy build). Note the total payload is ~120MB — fine on any real CDN/static host; GitHub Pages serves it (verified: `content-length` byte-identical to local), first load is just slow on modest bandwidth.
 
-```bash
-# GitHub Pages / 任意静态服务器
-git init && git add -A && git commit -m "duckdb+lua wasm online demo"
-# 推到一个 public 仓库开 Pages，或拷到 nginx/OSS 即可
-```
+To fork & host your own: [Fork](https://github.com/alitrack/duckdb-lua-online/fork) → enable Pages on `main/`.
 
-> 注：`duckdb-mvp.wasm`(41MB) + `duckdb-eh.wasm`(36MB) + 3 Lua 模块共 ~120MB，
-> 建议走带 CDN 的静态托管；GitHub Pages 单文件上限 100MB 需把两个 wasm 走外部 CDN 或 git-lfs。
+## Build recipe (reproducible)
 
-## 构建配方（可复现）
-
-工具链：Emscripten 3.1.6（用户态 `dpkg -x` 解包，无 sudo）+ PUC Lua 5.4.7 全源。
+Toolchain: Emscripten 3.1.6 (user-space via `dpkg -x`, no sudo) + PUC Lua 5.4.7 full sources.
 
 ```bash
-# 每个 Lua 模块（以 L20 为例）
+# each Lua module (L20 shown)
 em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
   -sMODULARIZE=1 -sEXPORT_NAME=L20Module \
   -sEXPORTED_FUNCTIONS=_lua_lib_run,_lua_prewarm,_diag_stage,_malloc,_free \
   -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,UTF8ToString,lengthBytesUTF8,HEAPU8 \
   -sSINGLE_FILE=1 -sALLOW_TABLE_GROWTH=1 -sALLOW_MEMORY_GROWTH=1 \
-  -sTOTAL_STACK=<栈> -sINITIAL_MEMORY=<内存> -o luaXX.js
-
-# L20/LU: TOTAL_STACK=32MB   L7(深递归): TOTAL_STACK=128MB
-# 关键: Lua 库源码经 gen_all_embed.py 嵌入 C 字符串头 (cur_embed.h)
-# DuckDB bundle: esbuild 把 @duckdb/duckdb-wasm(browser-blocking) + apache-arrow 打成一个 IIFE
+  -sTOTAL_STACK=<stack> -sINITIAL_MEMORY=<mem> -o luaXX.js
+# L20/LU: TOTAL_STACK=32MB   L7 (deep recursion): TOTAL_STACK=128MB
+# Lua sources are embedded as C string headers (gen_all_embed.py → cur_embed.h)
+# DuckDB bundle: esbuild bundles @duckdb/duckdb-wasm(browser-blocking) + apache-arrow into one IIFE
 ```
 
-## 踩过的关键坑（实证，非猜测）
+## Key pitfalls hit (empirical, not guessed)
 
-1. **duckdb-wasm blocking 的 VARCHAR UDF 返回有上游 NUL 缺陷**（byte buffer 未传回结果描述符，blocking/worker 两构建都有）→ 改 UDF 返回 **DOUBLE 索引**（数值返回正常），字符串走同线程 JS 桥。
-2. **`createScalarFunction` 返回类型必须 `new Arrow.Float64()`**（不是 `Utf8`）；`runQuery` 返回**原始 Arrow IPC 字节**，用 `Arrow.tableFromIPC` 解码，取值用 `getChild(col).at(i)`（`table.get` 在此构建返回 null）。
-3. **mvp/eh 是两套不同 wasm**（mvp 用 JS-shim C++ EH 需 `env.__cxa_throw`，eh 用原生 wasm-exceptions）。`localBundles()` 必须各指向正确二进制，否则 `Import "__cxa_throw" requires a callable`。
-4. **emcc 3.1.6 的 `EM_JS` 不会自动把 `char*` 参数转成 JS 字符串**（传的是原始指针）→ 胶水里手动 `UTF8ToString(sql)`；`EM_JS(std::string)` 返回有 emval 惰性首调错位，`EM_JS(char*)` 返回在循环中缓冲复用悬空 → **最终用 `EM_JS(void)` + JS `stringToUTF8` 写进 C 提供的 wasm 堆缓冲**（无返回值转换、无 emval 生命周期问题）。
-5. **cwrap 签名是 3.1.6 旧顺序** `cwrap(ident, returnType, argTypes, opts)`（新版把 returnType 挪到第 3 位）。
-6. **caller 是匿名函数表达式**，作 chunk 首语句是语法错误 → 生成器包成 `return function(...) ... end`；`luaL_loadbuffer` 失败路径必须先 `lua_pop` 掉错误串再 `setfield`，否则 -2 指向字符串 → **unprotected PANIC（表现为穿透成数字的 wasm 异常，C++ catch 接不住）**。
-7. **深递归 pipeline 库超 wasm 单线程栈上限**：trap 地址随 `TOTAL_STACK` 同比缩放（32M→34M，64M→67M，256M→269M）= 整个栈被吃光，不是普通 C++ 异常。升栈只是缓解，根治需重构那 4 个库的递归为迭代（独立工程）。
+1. **duckdb-wasm blocking's VARCHAR UDF return has an upstream NUL bug** (byte buffer never passed to the result descriptor; present in both blocking and worker builds) → UDF returns a **DOUBLE index** instead; the string travels over a same-thread JS bridge.
+2. **`createScalarFunction` return type must be `new Arrow.Float64()`** (not `Utf8`); `runQuery` returns **raw Arrow IPC bytes** — decode with `Arrow.tableFromIPC`, read via `getChild(col).at(i)` (`table.get` returns null in this build).
+3. **mvp/eh are two different wasm binaries** (mvp uses JS-shim C++ EH needing `env.__cxa_throw`; eh uses native wasm-exceptions). `localBundles()` must point each slot at the correct binary.
+4. **emcc 3.1.6 `EM_JS` does NOT auto-convert `char*` args to JS strings** (it passes a raw pointer) → glue must `UTF8ToString(sql)` manually; `EM_JS(std::string)` return has an emval lazy-first-call offset; `EM_JS(char*)` return dangles in loops → **final form: `EM_JS(void)` + JS `stringToUTF8` writing into a C-provided wasm-heap buffer**.
+5. **cwrap signature is 3.1.6 legacy order** `cwrap(ident, returnType, argTypes, opts)`.
+6. **callers are anonymous function expressions** — as a chunk's first statement that's a syntax error → wrap as `return function(...) ... end`; `luaL_loadbuffer` failure path must `lua_pop` the error string before `setfield`, or the -2 index lands on a string → **unprotected PANIC (manifests as a number punching through, uncatchable by C++ catch)**.
+7. **Deep-recursive pipeline libs exceed the single-thread WASM stack**: trap address scales with `TOTAL_STACK` (32M→34M, 64M→67M, 256M→269M) = the whole stack is consumed; it's not an ordinary C++ exception. Raising the stack only mitigates; the fix is rewriting those 5 libs' recursion to iteration.
 
-## 目录
+## Q&A
+
+### Why PUC Lua, not LuaJIT?
+LuaJIT's whole value is the JIT, which needs executable memory and on-the-fly code generation — impossible in a WASM sandbox (and ruled out by the author). The PUC 5.4 interpreter compiles to WASM cleanly; this repo proves the 29-lib workload runs.
+
+### Why Lua 5.4, not 5.5?
+- The 29 libraries are **written and regression-tested against the 5.4 API surface** (duckdb-luajit's native extension ships 5.4-compatible libs; LuaJIT is 5.1+2JIT). 5.5 changes are mostly additive (global-var declarations, named vararg, incremental GC) but also drop/deprecate some 5.1-era behavior the libs rely on (e.g. the `unpack` global — 5.4 still provides it, 5.5 removed it entirely).
+- 5.4 is the **last version where `unpack` exists** as a global and the C API is identical to what every existing port targets; switching to 5.5 means re-validating all 29 libs plus the C embed layer (a separate validation pass), while buying nothing the demo needs.
+- The wasm build here is a **feasibility/bridge PoC**, not a runtime upgrade — 5.4 is the lowest-risk choice that keeps the lib set green. A 5.5 port is a clean follow-up once the libs are re-baselined.
+
+## Directory
 
 ```
-index.html   深色高对比单页
-app.js       DuckDB 加载 + UDF 注册 + 3 模块编排 + 29 库扫描
-ddw.bundle.js    DuckDB-WASM + apache-arrow 合并 IIFE (esbuild, 1.3MB)
-lua20.js / lua7.js / luajp.js   3 个 Lua-WASM 模块 (SINGLE_FILE)
-duckdb-mvp.wasm / duckdb-eh.wasm   DuckDB 引擎 wasm (本地, 零 CDN)
+index.html            dark high-contrast single page (links + copyright footer)
+app.js                DuckDB load + UDF registration + 3-module orchestration + 29-lib scan
+ddw.bundle.js         DuckDB-WASM + apache-arrow combined IIFE (esbuild, 1.3MB)
+lua20.js / lua7.js / luajp.js   3 Lua-WASM modules (SINGLE_FILE)
+duckdb-mvp.wasm / duckdb-eh.wasm   DuckDB engine wasm (local, zero CDN)
 ```
+
+## License
+
+MIT. Dependencies: DuckDB (MIT) · DuckDB-Wasm (MIT) · PUC Lua (MIT) · Apache Arrow (Apache-2.0) · the 29 Lua libs (distributed with duckdb-luajit, MIT) · jieba/pinyin dictionaries (their respective upstream licenses).

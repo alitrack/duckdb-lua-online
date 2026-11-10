@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DuckDB 2.0 + Lua in WebAssembly · 29 库在线展示</title>
+<title>DuckDB-Wasm + PUC Lua 5.4 · 29 库在线运行</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d3a4a;
@@ -47,7 +47,7 @@
 </style>
 </head>
 <body>
-  <h1>DuckDB in WebAssembly + PUC Lua · 29 库在线运行</h1>
+  <h1>DuckDB in WebAssembly + PUC Lua 5.4 · 29 库在线运行</h1>
   <div class="sub">SQL 引擎（DuckDB-Wasm）把 Lua 虚拟机注册成 <b>SQL 标量 UDF</b>
     <code>lua_lib(库名, 输入)</code>，行内调用 29 个 Lua 库真实计算；
     其中 7 个回调库反向驱动 DuckDB（第二连接）建表/查询。</div>
@@ -56,7 +56,9 @@
     <span class="badge">Lua VM: <b id="b-lua">…</b></span>
     <span class="badge">可运行库: <b id="b-libs">…/29</b></span>
     <span class="badge">UDF: <b>lua_lib</b></span>
-    <span class="badge">CDN: <b>jsDelivr</b></span>
+    <span class="badge">CDN: <b>零（全本地）</b></span>
+    <span class="badge"><a href="https://github.com/alitrack/duckdb-lua-online" style="color:var(--acc);text-decoration:none">仓库</a></span>
+    <span class="badge"><a href="https://github.com/alitrack/duckdb-lua-online/fork" style="color:var(--acc);text-decoration:none">Fork</a></span>
   </div>
 
   <div class="grid">
@@ -146,12 +148,24 @@
   </div>
 
   <div class="note" style="margin-top:16px">
-    <b>诚实标注</b>：① DuckDB 引擎版本以运行时 <code>getVersion()</code> 为准（npm 包版本 ≠ 引擎版本）。
+    <b>诚实标注</b>：① DuckDB 引擎版本以运行时 <code>getVersion()</code> 为准（npm 包版本 ≠ 引擎版本；已发布 duckdb-wasm 包底层引擎为 v1.5.4，官方 2.0 尚未进该发布构建）。
     ② 本页的 "Lua" 是 <b>PUC Lua 5.4</b>（LuaJIT 本身进 WASM 已证死路，见姊妹仓可行性报告）——这是判词后的替代路线。
     ③ UDF 返回值经 DOUBLE 通道（本 duckdb-wasm 构建的 VARCHAR UDF 返回有上游缺陷，NUL 字节），
     字符串结果经同线程 JS 桥取回直接渲染——这是该构建的可用形态。
-    ④ 所有 Lua 库源码已嵌入 WASM（SINGLE_FILE），无外部依赖。
+    ④ 所有 Lua 库源码已嵌入 WASM（SINGLE_FILE），无外部依赖、零 CDN。
+    ⑤ etl/scd2/incremental/to_lance/demo_e2e 5 个深递归 pipeline 库超 wasm 单线程栈上限，扫描中如实标 <code>wasm-trap</code>。
   </div>
+
+  <footer style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);color:var(--dim);font-size:12px;line-height:1.9">
+    <b style="color:var(--fg)">来源与版权</b><br>
+    仓库（含全部源码/构建配方）：<a href="https://github.com/alitrack/duckdb-lua-online" style="color:var(--acc)">github.com/alitrack/duckdb-lua-online</a>
+    &nbsp;·&nbsp; <a href="https://github.com/alitrack/duckdb-lua-online/fork" style="color:var(--acc)">Fork</a>
+    &nbsp;·&nbsp; <a href="https://alitrack.github.io/duckdb-lua-online/" style="color:var(--acc)">本演示在线地址（GitHub Pages）</a><br>
+    姊妹仓：可行性研究 <a href="https://github.com/alitrack/puc-lua-wasm-poc" style="color:var(--acc)">puc-lua-wasm-poc</a>（私有）
+    &nbsp;·&nbsp; 主项目 <a href="https://github.com/alitrack/duckdb-luajit" style="color:var(--acc)">duckdb-luajit</a>（LuaJIT 版 DuckDB 扩展, MIT）<br>
+    依赖：DuckDB（MIT）· DuckDB-Wasm（MIT）· PUC Lua 5.4（MIT）· Apache Arrow（Apache-2.0）· 29 个 Lua 库（随 duckdb-luajit 分发, MIT）· jieba/pinyin 词典（各自上游许可）<br>
+    本页代码 MIT 许可，可自由 Fork 使用。构建：Emscripten 3.1.6 + PUC Lua 5.4.7 全源码嵌入（SINGLE_FILE）。
+  </footer>
 
 <script src="ddw.bundle.js"></script>
 <script src="lua20.js"></script>
