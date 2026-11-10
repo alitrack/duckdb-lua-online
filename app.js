@@ -231,7 +231,7 @@ function runScan(){
     try { r = M ? M._run(lib, "") : "MODULE_NOT_LOADED"; }
     catch(e){ r = "RUN_ERROR:" + (typeof e === "string" ? e : e && e.message ? e.message : "wasm-trap:" + String(e)); }
     ms = (performance.now()-t1).toFixed(0);
-    const bad = /FAIL|ERROR|error:|RUN_ERROR|MODULE_NOT_LOADED/.test(r);
+    const bad = /FAIL|ERROR|error:|RUN_ERROR|MODULE_NOT_LOADED|^ERR |^FAILED/.test(r);
     bad ? fail++ : ok++;
     lines.push(`${lib.padEnd(14)} [${bad?"FAIL":"OK  ".slice(0,4)}] ${ms}ms  ${String(r).slice(0,92).replace(/\n/g," ")}`);
   }
@@ -249,6 +249,8 @@ function seedDemoTables(){
     "CREATE OR REPLACE TABLE demo_export_src AS SELECT 1 AS id, 'alpha' AS name, 10.5 AS amt UNION ALL SELECT 2, 'beta', 20.5 UNION ALL SELECT 3, 'gamma', 30.5",
     "CREATE OR REPLACE TABLE demo_scd2_src AS SELECT 1 AS id, 'active' AS status, TIMESTAMP '2024-01-01 00:00:00' AS ts UNION ALL SELECT 2, 'inactive', TIMESTAMP '2024-01-02 00:00:00'",
     "CREATE OR REPLACE TABLE demo_e2e_src AS SELECT 1 AS id, 'x' AS category, 1.0 AS val",
+    "CREATE OR REPLACE TABLE demo_wm_src AS SELECT 1 AS id, TIMESTAMP '2024-01-01 00:00:00' AS ts UNION ALL SELECT 2, TIMESTAMP '2024-01-02 00:00:00'",
+    "CREATE OR REPLACE TABLE demo_wm AS SELECT * FROM demo_wm_src WHERE FALSE",
   ];
   for (const s of ddls){ try { S.db.runQuery(c, s); } catch(e){} }
 }
@@ -262,7 +264,7 @@ function showInfo(){
     "Lua 源码: 已嵌入 WASM (SINGLE_FILE), 29 库分 3 模块 (L20=21计算 / L7=7回调 / LU=2中文)",
     "词典: jieba+pinyin 内嵌 16.5MB",
     "DuckDB bundle: 本地 esbuild IIFE (1.3MB); wasm 主模块本地 (duckdb-mvp/eh.wasm, 零 CDN)",
-    "注: etl/demo_e2e/to_lance 3 个 pipeline 库递归深度超 wasm 单线程栈上限, 如实标注 STACK_LIMIT",
+    "注: 5 个回调库曾误报 wasm-trap——真因是构建缺 -sDISABLE_EXCEPTION_CATCHING=0, Lua 错误穿透成裸数字(app.js 误标 trap); 已修复。to_lance 需 Lance 扩展(浏览器 bundle 未带), 如实报缺依赖",
   ];
   pre("info-out", info.join("\n"));
 }

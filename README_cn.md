@@ -28,7 +28,7 @@
 |---|---|---|
 | **DuckDB 2.0** | DuckDB 引擎 **v1.5.4**（运行时 `getVersion()`） | 已发布的 `@duckdb/duckdb-wasm` npm 包（1.33.1-dev57.0）底层引擎是 1.5.4，官方 2.0 还没进这个发布构建。页面打印真实运行时版本——不造假徽章。 |
 | **LuaJIT** | **PUC Lua 5.4** | LuaJIT → WASM 已证死路（JIT 在沙箱里无法工作）。这是判词后的替代路线：PUC 解释器编进 WASM。（选 5.4 而非 5.5 —— 见 [Q&A](#为什么用-lua-54-而不是-55)。） |
-| **29 库全绿** | **25/29 OK** | 21 纯计算 + jieba/pinyin + 2 回调库（export/rbac）对真实 DuckDB 端到端验证通过；5 个深递归 pipeline 库（etl/scd2/incremental/to_lance/demo_e2e）超 wasm 单线程栈上限，扫描中如实标 `wasm-trap`——根治需把那 5 个库的递归改写成迭代（独立工程）。 |
+| **29 库全绿** | **29/30 OK** | 21 纯计算 + jieba/pinyin + 6 回调库（export/rbac/scd2/etl/incremental/demo_e2e）对真实 DuckDB 端到端验证通过。原先"失败"的 5 个回调库是**误诊**（见坑 7）：不是深递归——构建缺 `-sDISABLE_EXCEPTION_CATCHING=0`，Lua 错误穿透成裸数字被扫描误标 `wasm-trap`。修复后构建全绿。`to_lance` 如实报出真实阻塞：Lance 扩展无 duckdb-wasm 构建（lance-duckdb 已从 DuckDB 核心移除；Lance 上 WASM 被 Tokio/DataFusion 卡住，lance-format/lance#3587）。 |
 
 ## 架构
 
@@ -76,7 +76,8 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
   -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,UTF8ToString,lengthBytesUTF8,HEAPU8 \
   -sSINGLE_FILE=1 -sALLOW_TABLE_GROWTH=1 -sALLOW_MEMORY_GROWTH=1 \
   -sTOTAL_STACK=<栈> -sINITIAL_MEMORY=<内存> -o luaXX.js
-# L20/LU: TOTAL_STACK=32MB   L7（深递归）: TOTAL_STACK=128MB
+# L20/LU: TOTAL_STACK=32MB   L7: TOTAL_STACK=128MB（回调库经 DuckDB 帧调用，栈余量保守）
+# 修复后的 L7 还需 -sDISABLE_EXCEPTION_CATCHING=0（见坑 7）
 # Lua 源码经 gen_all_embed.py 嵌入成 C 字符串头（cur_embed.h）
 # DuckDB bundle: esbuild 把 @duckdb/duckdb-wasm(browser-blocking) + apache-arrow 打成一个 IIFE
 ```
@@ -89,7 +90,7 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
 4. **emcc 3.1.6 的 `EM_JS` 不会自动把 `char*` 参数转成 JS 字符串**（传的是原始指针）→ 胶水里手动 `UTF8ToString(sql)`；`EM_JS(std::string)` 返回有 emval 惰性首调错位，`EM_JS(char*)` 返回在循环中缓冲复用悬空 → **最终用 `EM_JS(void)` + JS `stringToUTF8` 写进 C 提供的 wasm 堆缓冲**。
 5. **cwrap 签名是 3.1.6 旧顺序** `cwrap(ident, returnType, argTypes, opts)`。
 6. **caller 是匿名函数表达式**，作 chunk 首语句是语法错误 → 包成 `return function(...) ... end`；`luaL_loadbuffer` 失败路径必须先 `lua_pop` 掉错误串再 `setfield`，否则 -2 指向字符串 → **unprotected PANIC（表现为穿透成数字、C++ catch 接不住）**。
-7. **深递归 pipeline 库超 wasm 单线程栈**：trap 地址随 `TOTAL_STACK` 同比缩放（32M→34M，64M→67M，256M→269M）= 整个栈被吃光，不是普通 C++ 异常。升栈只是缓解，根治需把递归改迭代。
+7. **L7 回调库"5 个失败"——误诊已纠正（2026-11-10）**：原始行称"深递归 pipeline 库超 wasm 单线程栈"（trap 地址随 `TOTAL_STACK` 同比缩放）。已被证伪：5 个库源码全是迭代（Kahn queue / `for` 循环），且同一份 C 驱动+库在 native C++/setjmp 下全部产出干净捕获的 Lua 错误串、零栈溢出。真根因：生产 L7 构建**漏了 `-sDISABLE_EXCEPTION_CATCHING=0`**——`LUA_USE_CPP` 下抛出的 Lua 错误变成 C++ 异常，`lua_pcall` 的 C++ catch 被编译器剥离接不住 → 穿过 wasm 边界成为**裸 JS 数字**（堆地址 ≈134M）→ 页面兜底 catch 误标 `wasm-trap:<n>`（实例其实活着，是 JS throw 非致命 trap）。修法：加该 flag，5 个库全部转为正常捕获的 Lua 错误串。次要问题：demo caller 参数错（scd2 `attr_cols` 写了源表不存在的列；incremental 没种子表；to_lance 传 `target` 键但库读 `dest`）——hook host 桥逐条记 SQL 后逐一现形。
 
 ## Q&A
 

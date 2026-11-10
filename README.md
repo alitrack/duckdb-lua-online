@@ -28,7 +28,7 @@ The 29 libs and their callback contract are identical to duckdb-luajit — if th
 |---|---|---|
 | **DuckDB 2.0** | DuckDB engine **v1.5.4** (runtime `getVersion()`) | The published `@duckdb/duckdb-wasm` npm package (1.33.1-dev57.0) is built on engine 1.5.4; the official 2.0 line is not in this published build. The page prints the real runtime version — no fake badge. |
 | **LuaJIT** | **PUC Lua 5.4** | LuaJIT → WASM is a proven dead end (JIT in a sandbox). This is the post-verdict alternative: PUC interpreter compiled to WASM. (5.4 chosen over 5.5 — see [Q&A](#why-lua-54-not-55).) |
-| **29 libs all green** | **25/29 OK** | 21 pure-compute + jieba/pinyin + 2 callback libs (export/rbac) verified end-to-end against real DuckDB; 5 deep-recursive pipeline libs (etl/scd2/incremental/to_lance/demo_e2e) exceed the single-thread WASM stack limit and are labeled `wasm-trap` in the scan — fixed requires rewriting their recursion as iteration (separate engineering effort). |
+| **29 libs all green** | **29/30 OK** | All 21 pure-compute + jieba/pinyin + 6 callback libs (export/rbac/scd2/etl/incremental/demo_e2e) verified end-to-end against real DuckDB. The 5 previously-"failing" callback libs were a **misdiagnosis** (see pitfall 7): not deep recursion — a missing `-sDISABLE_EXCEPTION_CATCHING=0` made Lua errors escape as a bare number that the scan mislabeled `wasm-trap`. Fixed build: all green. `to_lance` reports its real blocker honestly: the Lance extension has no duckdb-wasm build (lance-duckdb extension was removed from DuckDB core; Lance-on-WASM blocked on Tokio/DataFusion per lance-format/lance#3587). |
 
 ## Architecture
 
@@ -76,7 +76,8 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
   -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,stringToUTF8,UTF8ToString,lengthBytesUTF8,HEAPU8 \
   -sSINGLE_FILE=1 -sALLOW_TABLE_GROWTH=1 -sALLOW_MEMORY_GROWTH=1 \
   -sTOTAL_STACK=<stack> -sINITIAL_MEMORY=<mem> -o luaXX.js
-# L20/LU: TOTAL_STACK=32MB   L7 (deep recursion): TOTAL_STACK=128MB
+# L20/LU: TOTAL_STACK=32MB   L7: TOTAL_STACK=128MB（回调库经 DuckDB 帧调用，栈余量保守）
+# 修复后的 L7 还需 -sDISABLE_EXCEPTION_CATCHING=0（见坑 7）
 # Lua sources are embedded as C string headers (gen_all_embed.py → cur_embed.h)
 # DuckDB bundle: esbuild bundles @duckdb/duckdb-wasm(browser-blocking) + apache-arrow into one IIFE
 ```
@@ -89,7 +90,7 @@ em++ -O1 -x c++ -I$SRC udf_drv.c $LUA_SRC \
 4. **emcc 3.1.6 `EM_JS` does NOT auto-convert `char*` args to JS strings** (it passes a raw pointer) → glue must `UTF8ToString(sql)` manually; `EM_JS(std::string)` return has an emval lazy-first-call offset; `EM_JS(char*)` return dangles in loops → **final form: `EM_JS(void)` + JS `stringToUTF8` writing into a C-provided wasm-heap buffer**.
 5. **cwrap signature is 3.1.6 legacy order** `cwrap(ident, returnType, argTypes, opts)`.
 6. **callers are anonymous function expressions** — as a chunk's first statement that's a syntax error → wrap as `return function(...) ... end`; `luaL_loadbuffer` failure path must `lua_pop` the error string before `setfield`, or the -2 index lands on a string → **unprotected PANIC (manifests as a number punching through, uncatchable by C++ catch)**.
-7. **Deep-recursive pipeline libs exceed the single-thread WASM stack**: trap address scales with `TOTAL_STACK` (32M→34M, 64M→67M, 256M→269M) = the whole stack is consumed; it's not an ordinary C++ exception. Raising the stack only mitigates; the fix is rewriting those 5 libs' recursion to iteration.
+7. **L7 callback libs "wasm-trap" — misdiagnosis corrected (2026-11-10)**: the original row claimed "deep-recursive pipeline libs exceed the single-thread WASM stack" (trap address scaled with `TOTAL_STACK`). Refuted: all 5 libs are iterative (Kahn queue / `for` loops), and the identical C driver + libs run clean under native C++/setjmp with caught Lua errors, zero overflows. True root cause: the production L7 build **omitted `-sDISABLE_EXCEPTION_CATCHING=0`** — under `LUA_USE_CPP`, a raised Lua error surfaces as a C++ exception that `lua_pcall`'s (compiler-stripped) C++ catch can't catch → it crosses the wasm boundary as a **bare JS number** (a heap address ≈134M) → the page's catch-all mislabeled it `wasm-trap:<n>`. The instance survives (it's a JS throw, not a fatal trap). Fix: add the flag — all 5 then report clean caught Lua error strings. Secondary: the demo callers had param bugs (scd2 `attr_cols` named a non-existent column; incremental seeded no source table; to_lance passed `target` where the lib reads `dest`) — hooking the host bridge and logging every SQL surfaced each one.
 
 ## Q&A
 
