@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DuckDB 2.0 + Lua in WebAssembly · 29 库在线展示</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d3a4a;
+    --fg:#e6edf3; --dim:#8b98a9; --acc:#4cc2ff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+    --code:#0a0e14;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.6 -apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;padding:20px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:16px;margin:0 0 10px;color:var(--acc)}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:18px}
+  .badges{margin:10px 0 20px;display:flex;gap:8px;flex-wrap:wrap}
+  .badge{background:var(--panel2);border:1px solid var(--border);border-radius:20px;
+    padding:3px 12px;font-size:12px}
+  .badge b{color:var(--acc)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+  .panel.full{grid-column:1/-1}
+  pre{margin:0;background:var(--code);border:1px solid var(--border);border-radius:8px;
+    padding:12px;overflow:auto;font:12px/1.55 ui-monospace,"Cascadia Code",Consolas,monospace;
+    max-height:420px;white-space:pre-wrap;word-break:break-word}
+  .row{display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  select{background:var(--panel2);color:var(--fg);border:1px solid var(--border);
+    border-radius:6px;padding:6px 8px;font-size:13px}
+  button{background:var(--acc);color:#04121e;border:0;border-radius:6px;padding:6px 14px;
+    font-size:13px;font-weight:600;cursor:pointer}
+  button:disabled{background:var(--border);color:var(--dim);cursor:not-allowed}
+  .status{font-size:12px;color:var(--dim);margin-top:8px}
+  .status .ok{color:var(--ok)} .status .err{color:var(--err)} .status .warn{color:var(--warn)}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;
+    background:var(--panel2);border:1px solid var(--border);color:var(--dim);margin-left:6px}
+  .note{font-size:12px;color:var(--dim);border-left:3px solid var(--border);
+    padding:8px 12px;margin-top:12px;background:var(--panel2);border-radius:0 6px 6px 0}
+  .k{color:var(--warn)}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  th,td{border:1px solid var(--border);padding:5px 8px;text-align:left}
+  th{background:var(--panel2);color:var(--acc)}
+  .okc{color:var(--ok)} .errc{color:var(--err)}
+</style>
+</head>
+<body>
+  <h1>DuckDB in WebAssembly + PUC Lua · 29 库在线运行</h1>
+  <div class="sub">SQL 引擎（DuckDB-Wasm）把 Lua 虚拟机注册成 <b>SQL 标量 UDF</b>
+    <code>lua_lib(库名, 输入)</code>，行内调用 29 个 Lua 库真实计算；
+    其中 7 个回调库反向驱动 DuckDB（第二连接）建表/查询。</div>
+  <div class="badges" id="badges">
+    <span class="badge">引擎: <b id="b-engine">…</b></span>
+    <span class="badge">Lua VM: <b id="b-lua">…</b></span>
+    <span class="badge">可运行库: <b id="b-libs">…/29</b></span>
+    <span class="badge">UDF: <b>lua_lib</b></span>
+    <span class="badge">CDN: <b>jsDelivr</b></span>
+  </div>
+
+  <div class="grid">
+    <!-- A: 计算库 UDF（SQL 行内调用） -->
+    <div class="panel">
+      <h2>① 计算库 · SQL 行内 UDF 调用</h2>
+      <div class="row">
+        <select id="calc-lib">
+          <option value="trgm">trgm（相似度/前缀）</option>
+          <option value="json">json（编解码/patch）</option>
+          <option value="jsonpatch">jsonpatch</option>
+          <option value="jsonpath">jsonpath</option>
+          <option value="yaml">yaml</option>
+          <option value="bignum">bignum（大数）</option>
+          <option value="basexx">basexx（base 编解码）</option>
+          <option value="fuzzy">fuzzy（模糊）</option>
+          <option value="soundex">soundex</option>
+          <option value="html_escape">html_escape</option>
+          <option value="xml">xml</option>
+          <option value="cidr">cidr（网段）</option>
+          <option value="qr">qr（QR 码）</option>
+          <option value="entity">entity（HTML 实体）</option>
+          <option value="psi">psi</option>
+          <option value="rsi_scorer">rsi_scorer</option>
+          <option value="ltree">ltree（层次）</option>
+          <option value="pgrouting">pgrouting</option>
+          <option value="cncheck">cncheck（中文校验）</option>
+          <option value="markdown">markdown</option>
+          <option value="tomlini">tomlini（TOML）</option>
+        </select>
+        <button id="run-calc">在 SQL 中执行</button>
+      </div>
+      <pre id="calc-sql" class="dim" style="color:var(--dim);max-height:60px"></pre>
+      <pre id="calc-out" style="margin-top:8px">— 选择库并执行 —</pre>
+      <div class="status" id="calc-status"></div>
+    </div>
+
+    <!-- B: 回调库 · 驱动 DuckDB -->
+    <div class="panel">
+      <h2>② 回调库 · Lua 反向驱动 DuckDB</h2>
+      <div class="row">
+        <select id="cb-lib">
+          <option value="demo_e2e">demo_e2e（端到端管道）</option>
+          <option value="export">export（导出/建表）</option>
+          <option value="scd2">scd2（缓慢变化维）</option>
+          <option value="etl">etl（管道/审计）</option>
+          <option value="incremental">incremental（增量）</option>
+          <option value="to_lance">to_lance（写 lance）</option>
+          <option value="rbac">rbac（权限）</option>
+        </select>
+        <button id="run-cb">执行（第二连接）</button>
+      </div>
+      <pre id="cb-out">— 选择库并执行 —</pre>
+      <div class="status" id="cb-status"></div>
+      <div class="note">这些库的 <code>_duckdb_call/_duckdb_query</code> 经 JS 桥打到
+        DuckDB <b>第二连接</b>（同线程、避免 UDF 重入死锁），真实建表/查询。</div>
+    </div>
+
+    <!-- C: 中文 NLP（jieba + pinyin） -->
+    <div class="panel">
+      <h2>③ 中文 NLP · jieba + pinyin（内嵌 16.5MB 词典）</h2>
+      <div class="row">
+        <select id="nlp-lib">
+          <option value="jieba">jieba（分词）</option>
+          <option value="pinyin">pinyin（拼音）</option>
+        </select>
+        <button id="run-nlp">分词 / 注音</button>
+      </div>
+      <pre id="nlp-out">— 选择并执行 —</pre>
+      <div class="status" id="nlp-status"></div>
+    </div>
+
+    <!-- D: 全量 29 库健康扫描 -->
+    <div class="panel full">
+      <h2>④ 29 库健康扫描（加载 + 首调用）</h2>
+      <button id="run-scan">全量扫描</button>
+      <pre id="scan-out" style="margin-top:10px">— 点击全量扫描 —</pre>
+      <div class="status" id="scan-status"></div>
+    </div>
+
+    <!-- E: 引擎信息 -->
+    <div class="panel full">
+      <h2>⑤ 引擎与架构</h2>
+      <pre id="info-out">加载中…</pre>
+<pre id="dbg" style="max-height:120px;color:var(--err)"></pre>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:16px">
+    <b>诚实标注</b>：① DuckDB 引擎版本以运行时 <code>getVersion()</code> 为准（npm 包版本 ≠ 引擎版本）。
+    ② 本页的 "Lua" 是 <b>PUC Lua 5.4</b>（LuaJIT 本身进 WASM 已证死路，见姊妹仓可行性报告）——这是判词后的替代路线。
+    ③ UDF 返回值经 DOUBLE 通道（本 duckdb-wasm 构建的 VARCHAR UDF 返回有上游缺陷，NUL 字节），
+    字符串结果经同线程 JS 桥取回直接渲染——这是该构建的可用形态。
+    ④ 所有 Lua 库源码已嵌入 WASM（SINGLE_FILE），无外部依赖。
+  </div>
+
+<script src="ddw.bundle.js"></script>
+<script src="lua20.js"></script>
+<script src="lua7.js"></script>
+<script src="luajp.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
