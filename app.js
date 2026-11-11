@@ -264,7 +264,8 @@ function showInfo(){
     "Lua 源码: 已嵌入 WASM (SINGLE_FILE), 30 库分 3 模块 (L20=21计算 / L7=7回调 / LU=2中文)",
     "词典: jieba+pinyin 内嵌 16.5MB",
     "DuckDB bundle: 本地 esbuild IIFE (1.3MB); wasm 主模块本地 (duckdb-mvp/eh.wasm, 零 CDN)",
-    "注: 5 个回调库曾误报 wasm-trap——真因是构建缺 -sDISABLE_EXCEPTION_CATCHING=0, Lua 错误穿透成裸数字(app.js 误标 trap); 已修复。to_lance 需 Lance 扩展(浏览器 bundle 未带), 如实报缺依赖",
+    "扫描 29/30: 唯一 FAIL = to_lance, 缺 Lance 扩展——官方从未发布其 wasm 二进制(扩展仓库该 URL 实测 404, 同路径 icu/json 均 200), 库本身无 bug, 如实报 Catalog Error, 非故障",
+    "注: 5 个回调库曾误报 wasm-trap——真因是构建缺 -sDISABLE_EXCEPTION_CATCHING=0, Lua 错误穿透成裸数字(误标 trap); 已修复, 现全部 OK",
   ];
   pre("info-out", info.join("\n"));
 }

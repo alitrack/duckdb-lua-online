@@ -28,7 +28,7 @@
 |---|---|---|
 | **DuckDB 2.0** | DuckDB 引擎 **v1.5.4**（运行时 `getVersion()`） | 已发布的 `@duckdb/duckdb-wasm` npm 包（1.33.1-dev57.0）底层引擎是 1.5.4，官方 2.0 还没进这个发布构建。页面打印真实运行时版本——不造假徽章。 |
 | **LuaJIT** | **PUC Lua 5.4** | LuaJIT → WASM 已证死路（JIT 在沙箱里无法工作）。这是判词后的替代路线：PUC 解释器编进 WASM。（选 5.4 而非 5.5 —— 见 [Q&A](#为什么用-lua-54-而不是-55)。） |
-| **30 库全绿** | **29/30 OK** | 21 纯计算 + jieba/pinyin + 6 回调库（export/rbac/scd2/etl/incremental/demo_e2e）对真实 DuckDB 端到端验证通过。原先"失败"的 5 个回调库是**误诊**（见坑 7）：不是深递归——构建缺 `-sDISABLE_EXCEPTION_CATCHING=0`，Lua 错误穿透成裸数字被扫描误标 `wasm-trap`。修复后构建全绿。`to_lance` 如实报出真实阻塞：Lance 扩展无 duckdb-wasm 构建（lance-duckdb 已从 DuckDB 核心移除；Lance 上 WASM 被 Tokio/DataFusion 卡住，lance-format/lance#3587）。 |
+| **30 库全绿** | **29/30 OK** | 21 纯计算 + jieba/pinyin + 6 回调库（export/rbac/scd2/etl/incremental/demo_e2e）对真实 DuckDB 端到端验证通过。原先"失败"的 5 个回调库是**误诊**（见坑 7）：不是深递归——构建缺 `-sDISABLE_EXCEPTION_CATCHING=0`，Lua 错误穿透成裸数字被扫描误标 `wasm-trap`。修复后构建全绿。`to_lance` 如实报出真实阻塞（2026-11-10 实证）：官方扩展仓库从未发布 `lance` 的 wasm 二进制——引擎下载 `extensions.duckdb.org/v1.5.4/wasm_eh/lance.duckdb_extension.wasm` 返回 **404**（同路径 icu/json 均 200，路径正确；元数据存在但二进制缺失），`INSTALL` 成功 ≠ `LOAD` 可用。自编亦不可行：Lance 依赖链上 Tokio（需 OS 线程/epoll，单线程 wasm 没有）+ DataFusion（lance-format/lance#3587）。故其 `Catalog Error: ...lance does not exist` 是正确终点行为，非 bug。 |
 
 ## 架构
 

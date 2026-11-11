@@ -153,7 +153,9 @@
     ③ UDF 返回值经 DOUBLE 通道（本 duckdb-wasm 构建的 VARCHAR UDF 返回有上游缺陷，NUL 字节），
     字符串结果经同线程 JS 桥取回直接渲染——这是该构建的可用形态。
     ④ 所有 Lua 库源码已嵌入 WASM（SINGLE_FILE），无外部依赖、零 CDN。
-    ⑤ etl/scd2/incremental/to_lance/demo_e2e 5 个深递归 pipeline 库超 wasm 单线程栈上限，扫描中如实标 <code>wasm-trap</code>。
+    ⑤ 扫描结果 <b>29/30</b>：唯一 FAIL 是 <code>to_lance</code>——Lance 扩展官方从未发布 wasm 二进制
+    （引擎下载 <code>extensions.duckdb.org/v1.5.4/wasm_eh/lance.duckdb_extension.wasm</code> = 404，同路径 icu/json 均 200），
+    库本身无 bug，如实报 <code>Catalog Error</code> 缺依赖，非故障。
   </div>
 
   <footer style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);color:var(--dim);font-size:12px;line-height:1.9">
